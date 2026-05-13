@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const db = require("./db");
@@ -6,7 +8,7 @@ const app = express();
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 
-const SECRET_KEY = "mysecretkey"; // later we’ll move this to .env
+const SECRET_KEY = process.env.JWT_SECRET || "dev_secret_key";
 app.use(cors());
 app.use(express.json());
 
@@ -23,12 +25,8 @@ app.get("/test-db", (req, res) => {
   });
 });
 
-app.listen(5000, () => {
-  console.log("Server running on port 5000");
-});
-
 app.get("/users", (req, res) => {
-  const query = "SELECT * FROM users";
+  const query = "SELECT user_id, name, username, role FROM users";
 
   db.query(query, (err, result) => {
     if (err) {
@@ -40,27 +38,29 @@ app.get("/users", (req, res) => {
   });
 });
 
-app.post("/add-user", (req, res) => {
+app.post("/add-user", async (req, res) => {
   const { name, username, password, role } = req.body;
 
   if (!name || !username || !password || !role) {
     return res.status(400).send("All fields are required");
   }
 
-  const query = "INSERT INTO users (name, username, password, role) VALUES (?, ?, ?, ?)";
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const query = "INSERT INTO users (name, username, password, role) VALUES (?, ?, ?, ?)";
 
-  db.query(query, [name, username, password, role], (err, result) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).send("Error adding user");
-    }
+    db.query(query, [name, username, hashedPassword, role], (err) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Error adding user");
+      }
 
-    res.send("User added successfully ✅");
-    console.log(req.body);
-  });
-});
-app.listen(5000, () => {
-  console.log("Server running on port 5000");
+      res.send("User added successfully");
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Error adding user");
+  }
 });
 
 app.post("/login", (req, res) => {
@@ -91,9 +91,13 @@ app.post("/login", (req, res) => {
     );
 
     res.json({
-      message: "Login successful 🔐",
-      token: token,
+      message: "Login successful",
+      token,
       role: user.role
     });
   });
+});
+
+app.listen(5000, () => {
+  console.log("Server running on port 5000");
 });
