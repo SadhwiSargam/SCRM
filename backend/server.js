@@ -1,7 +1,6 @@
 const express = require("express");
 const cors = require("cors");
 const db = require("./db");
-
 const app = express();
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
@@ -23,12 +22,8 @@ app.get("/test-db", (req, res) => {
   });
 });
 
-app.listen(5000, () => {
-  console.log("Server running on port 5000");
-});
-
-app.get("/users", (req, res) => {
-  const query = "SELECT * FROM users";
+app.get("/users", verifyToken,authorizeRole(["admin"]), (req, res) => {
+  const query = "SELECT user_id, name, username, role, created_at FROM users";
 
   db.query(query, (err, result) => {
     if (err) {
@@ -40,28 +35,29 @@ app.get("/users", (req, res) => {
   });
 });
 
-app.post("/add-user", (req, res) => {
+app.post("/add-user", async (req, res) => {
   const { name, username, password, role } = req.body;
 
-  if (!name || !username || !password || !role) {
-    return res.status(400).send("All fields are required");
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const query = "INSERT INTO users (name, username, password, role) VALUES (?, ?, ?, ?)";
+
+    db.query(query, [name, username, hashedPassword, role], (err, result) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send("Error adding user");
+      }
+
+      res.send("User added securely 🔐");
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Hashing error");
   }
-
-  const query = "INSERT INTO users (name, username, password, role) VALUES (?, ?, ?, ?)";
-
-  db.query(query, [name, username, password, role], (err, result) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).send("Error adding user");
-    }
-
-    res.send("User added successfully ✅");
-    console.log(req.body);
-  });
 });
-app.listen(5000, () => {
-  console.log("Server running on port 5000");
-});
+
 
 app.post("/login", (req, res) => {
   const { username, password } = req.body;
@@ -96,4 +92,50 @@ app.post("/login", (req, res) => {
       role: user.role
     });
   });
+});
+
+const verifyToken = (req, res, next) => {
+  const token = req.headers["authorization"];
+
+  if (!token) return res.status(403).send("Access denied");
+
+  try {
+    const decoded = jwt.verify(token, SECRET_KEY);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    res.status(401).send("Invalid token");
+  }
+};
+
+const authorizeRole = (roles) => {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).send("Forbidden: Access denied");
+    }
+    next();
+  };
+};
+
+app.get("/victims", verifyToken, (req, res) => {
+
+  if (req.user.role === "public") {
+    return res.send("Access restricted ❌");
+  }
+
+  const query = "SELECT * FROM victims";
+
+  db.query(query, (err, result) => {
+    if (err) res.status(500).send("Error");
+    else res.json(result);
+  });
+});
+
+const logAction = (user_id, action) => {
+  const query = "INSERT INTO access_logs (user_id, action) VALUES (?, ?)";
+  db.query(query, [user_id, action]);
+};
+
+app.listen(5000, () => {
+  console.log("Server running on port 5000");
 });
